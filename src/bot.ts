@@ -1,5 +1,4 @@
 import { Telegraf, Context } from 'telegraf';
-import { message } from 'telegraf/filters';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import * as cron from 'node-cron';
@@ -20,7 +19,7 @@ interface BotConfig {
 
 class EmailMonitorBot {
   private bot: Telegraf;
-  private imap!: Imap;   
+  private imap!: Imap;
   private config: BotConfig;
   private subscribedUsers: Set<number> = new Set();
 
@@ -80,9 +79,9 @@ class EmailMonitorBot {
         this.subscribedUsers.add(userId);
         ctx.reply(
           '✅ Бот запущен! Вы будете получать уведомления о письмах с темой содержащей "alert".\n\n' +
-          'Команды:\n' +
-          '/status - статус мониторинга\n' +
-          '/stop - остановить уведомления'
+            'Команды:\n' +
+            '/status - статус мониторинга\n' +
+            '/stop - остановить уведомления'
         );
       } else {
         ctx.reply('❌ У вас нет доступа к этому боту.');
@@ -93,7 +92,9 @@ class EmailMonitorBot {
     this.bot.command('status', (ctx: Context) => {
       const userId = ctx.from?.id;
       if (userId && this.subscribedUsers.has(userId)) {
-        ctx.reply(`📊 Статус: активен\nПодписчиков: ${this.subscribedUsers.size}`);
+        ctx.reply(
+          `📊 Статус: активен\nПодписчиков: ${this.subscribedUsers.size}`
+        );
       }
     });
 
@@ -102,7 +103,9 @@ class EmailMonitorBot {
       const userId = ctx.from?.id;
       if (userId) {
         this.subscribedUsers.delete(userId);
-        ctx.reply('🔕 Уведомления остановлены. Используйте /start для возобновления.');
+        ctx.reply(
+          '🔕 Уведомления остановлены. Используйте /start для возобновления.'
+        );
       }
     });
 
@@ -137,9 +140,7 @@ class EmailMonitorBot {
           return;
         }
 
-        this.searchEmails()
-          .then(resolve)
-          .catch(reject);
+        this.searchEmails().then(resolve).catch(reject);
       });
     });
   }
@@ -148,78 +149,74 @@ class EmailMonitorBot {
     return new Promise((resolve, reject) => {
       // Ищем непрочитанные письма за последние 10 минут
       const since = new Date();
-      since.setMinutes(since.getMinutes() - 10);
+      since.setMinutes(since.getMinutes() - 30);
 
-      this.imap.search(['UNSEEN', ['SINCE', since.toISOString().split('T')[0]]], (err: Error | null, results: number[]) => {
-        if (err) {
-          reject(err);
-          return;
-        }
+      this.imap.search(
+        ['UNSEEN', ['SINCE', since.toISOString().split('T')[0]]],
+        (err: Error | null, results: number[]) => {
+          if (err) {
+            reject(err);
+            return;
+          }
 
-        if (results.length === 0) {
-          resolve();
-          return;
-        }
+          if (results.length === 0) {
+            resolve();
+            return;
+          }
 
-        const fetch = this.imap.fetch(results, { bodies: '' });
-        
-        fetch.on('message', (msg: any) => {
-        msg.on('body', async (stream: NodeJS.ReadableStream) => {
-            try {
-            // Собираем данные из stream в буфер
+          console.log(`📨 Found ${results.length} unread emails`);
+
+          // ✅ Ключевое решение: используем markSeen: true
+          const fetch = this.imap.fetch(results, {
+            bodies: '',
+            markSeen: true // IMAP сервер сам помечает письма как прочитанные
+          });
+
+          let alertCount = 0;
+
+          fetch.on('message', (msg: any) => {
             const chunks: Buffer[] = [];
-            
-            stream.on('data', (chunk: Buffer) => {
+
+            msg.on('body', (stream: NodeJS.ReadableStream) => {
+              stream.on('data', (chunk: Buffer) => {
                 chunks.push(chunk);
-            });
+              });
 
-            stream.on('end', async () => {
+              stream.on('end', async () => {
                 try {
-                // Преобразуем буфер в строку и парсим письмо
-                const emailBuffer = Buffer.concat(chunks);
-                const mail = await simpleParser(emailBuffer);
+                  const emailBuffer = Buffer.concat(chunks);
+                  const mail = await simpleParser(emailBuffer);
 
-                // Проверяем тему на наличие слова "alert"
-                if (mail.subject && mail.subject.toLowerCase().includes('alert')) {
+                  if (
+                    mail.subject &&
+                    mail.subject.toLowerCase().includes('alert')
+                  ) {
+                    console.log(`🚨 ALERT: "${mail.subject}"`);
                     await this.sendAlertNotification(mail);
-                }
-
-                // Помечаем письмо как прочитанное
-                this.markAsRead(msg);
+                    alertCount++;
+                  }
                 } catch (error) {
-                console.error('Error parsing email:', error);
+                  console.error('Error parsing email:', error);
                 }
+              });
             });
+          });
 
-            } catch (error) {
-            console.error('Error processing email stream:', error);
-            }
-        });
-        });
+          fetch.once('error', (err: Error) => {
+            reject(err);
+          });
 
-        fetch.once('error', (err: Error) => {
-          reject(err);
-        });
-
-        fetch.once('end', () => {
-          resolve();
-        });
-      });
-    });
-  }
-
-  private markAsRead(msg: any): void {
-    console.log(msg.attributes);
-    this.imap.addFlags(msg.attributes.uid, ['\\Seen'], (err: Error | null) => {
-      if (err) {
-        console.error('Error marking email as read:', err);
-      }
+          fetch.once('end', () => {
+            resolve();
+          });
+        }
+      );
     });
   }
 
   private async sendAlertNotification(mail: any): Promise<void> {
     const message = this.formatAlertMessage(mail);
-    
+
     for (const userId of this.subscribedUsers) {
       try {
         await this.bot.telegram.sendMessage(userId, message);
@@ -236,14 +233,17 @@ class EmailMonitorBot {
   private formatAlertMessage(mail: any): string {
     const subject = mail.subject || 'Без темы';
     const from = mail.from?.text || 'Неизвестный отправитель';
-    const date = mail.date?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU');
+    const date =
+      mail.date?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU');
     const text = mail.text ? mail.text.substring(0, 500) + '...' : 'Нет текста';
 
-    return `🚨 ALERT УВЕДОМЛЕНИЕ\n\n` +
-            `📧 От: ${from}\n` +
-            `📋 Тема: ${subject}\n` +
-            `🕒 Время: ${date}\n\n` +
-            `📝 Содержание:\n${text}`;
+    return (
+      `🚨 ALERT УВЕДОМЛЕНИЕ\n\n` +
+      `📧 От: ${from}\n` +
+      `📋 Тема: ${subject}\n` +
+      `🕒 Время: ${date}\n\n` +
+      `📝 Содержание:\n${text}`
+    );
   }
 
   public async start(): Promise<void> {
