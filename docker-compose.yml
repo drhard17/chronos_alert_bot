@@ -1,0 +1,5 @@
+services:
+  bot:
+    container_name: chronos_alerts_bot
+    build:
+      context: ./
