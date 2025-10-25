@@ -13,7 +13,6 @@ interface EmailConfig {
 
 interface BotConfig {
   telegramToken?: string;
-  allowedUsers?: number[];
   email: EmailConfig;
 }
 
@@ -21,7 +20,6 @@ class EmailMonitorBot {
   private bot: Telegraf;
   private imap!: Imap;
   private config: BotConfig;
-  private subscribedUsers: Set<number> = new Set();
 
   constructor(config: BotConfig) {
     const token = config.telegramToken;
@@ -68,45 +66,14 @@ class EmailMonitorBot {
   }
 
   private setupBot(): void {
-    // Команда старт
-    this.bot.start((ctx: Context) => {
-      const userId = ctx.from?.id;
-      const { allowedUsers } = this.config;
-      if (allowedUsers === undefined) {
-        throw new Error('Allowed users are not provided')
-      }
-      if (userId && allowedUsers.includes(userId)) {
-        this.subscribedUsers.add(userId);
-        ctx.reply(
-          '✅ Бот запущен! Вы будете получать уведомления о письмах с темой содержащей "alert".\n\n' +
-            'Команды:\n' +
-            '/status - статус мониторинга\n' +
-            '/stop - остановить уведомления'
-        );
-      } else {
-        ctx.reply('❌ У вас нет доступа к этому боту.');
-      }
-    });
-
     // Команда статуса
     this.bot.command('status', (ctx: Context) => {
-      const userId = ctx.from?.id;
-      if (userId && this.subscribedUsers.has(userId)) {
-        ctx.reply(
-          `📊 Статус: активен\nПодписчиков: ${this.subscribedUsers.size}`
-        );
-      }
+        // TODO something
     });
 
-    // Команда остановки
-    this.bot.command('stop', (ctx: Context) => {
-      const userId = ctx.from?.id;
-      if (userId) {
-        this.subscribedUsers.delete(userId);
-        ctx.reply(
-          '🔕 Уведомления остановлены. Используйте /start для возобновления.'
-        );
-      }
+    this.bot.command('chatid', (ctx: Context) => {
+      const chatId = ctx.chat?.id;
+      ctx.reply(`Chat ID: ${chatId}`);
     });
 
     // Обработка ошибок
@@ -123,8 +90,6 @@ class EmailMonitorBot {
   }
 
   private async checkNewEmails(): Promise<void> {
-    if (this.subscribedUsers.size === 0) return;
-
     try {
       await this.openInbox();
     } catch (error) {
@@ -139,7 +104,6 @@ class EmailMonitorBot {
           reject(err);
           return;
         }
-
         this.searchEmails().then(resolve).catch(reject);
       });
     });
@@ -216,18 +180,15 @@ class EmailMonitorBot {
 
   private async sendAlertNotification(mail: any): Promise<void> {
     const message = this.formatAlertMessage(mail);
-
-    for (const userId of this.subscribedUsers) {
-      try {
-        await this.bot.telegram.sendMessage(userId, message);
-      } catch (error) {
-        console.error(`Error sending message to user ${userId}:`, error);
-        // Если пользователь заблокировал бота, удаляем его из подписчиков
-        if (error instanceof Error && error.message.includes('blocked')) {
-          this.subscribedUsers.delete(userId);
-        }
-      }
+    const chat_id = process.env.CHRONOS_CHAT_ID
+    if (chat_id === undefined) {
+        throw new Error('Chat_id is not provided')
     }
+      try {
+        await this.bot.telegram.sendMessage(chat_id, message);
+      } catch (error) {
+        console.error(`Error sending message:`, error);
+      }
   }
 
   private formatAlertMessage(mail: any): string {
@@ -269,7 +230,6 @@ class EmailMonitorBot {
 // Конфигурация
 const config: BotConfig = {
   telegramToken: process.env.BOT_TOKEN,
-  allowedUsers: [Number(process.env.ALLOWED_USERS)],
   email: {
     user: process.env.EMAIL_ADDRESS,
     password: process.env.EMAIL_PASSWORD,
