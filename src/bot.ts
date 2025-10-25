@@ -193,17 +193,14 @@ class EmailMonitorBot {
 
   private formatAlertMessage(mail: any): string {
     const subject = mail.subject || 'Без темы';
-    const from = mail.from?.text || 'Неизвестный отправитель';
     const date =
       mail.date?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU');
-    const text = mail.text ? mail.text.substring(0, 500) + '...' : 'Нет текста';
+    const text = mail.text ? mail.text.substring(0, 1024) : 'Нет текста';
 
     return (
-      `🚨 ALERT УВЕДОМЛЕНИЕ\n\n` +
-      `📧 От: ${from}\n` +
-      `📋 Тема: ${subject}\n` +
-      `🕒 Время: ${date}\n\n` +
-      `📝 Содержание:\n${text}`
+      `🚨 ${subject}\n\n` +
+      `🕒 ${date}\n\n` +
+      `📝 ${text}`
     );
   }
 
