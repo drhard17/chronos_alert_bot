@@ -20,11 +20,14 @@ class EmailMonitorBot {
   private bot: Telegraf;
   private imap!: Imap;
   private config: BotConfig;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectDelay: number = 1000;
 
   constructor(config: BotConfig) {
     const token = config.telegramToken;
     if (token === undefined) {
-        throw new Error('Bot token is not provided');
+      throw new Error('Bot token is not provided');
     }
     this.config = config;
     this.bot = new Telegraf(token);
@@ -35,12 +38,12 @@ class EmailMonitorBot {
   private setupImap(): void {
     const { user, password, host, port } = this.config.email;
     if (
-        user === undefined ||
-        password === undefined ||
-        host === undefined ||
-        port === undefined
+      user === undefined ||
+      password === undefined ||
+      host === undefined ||
+      port === undefined
     ) {
-        throw new Error('Email credentials are not provided')
+      throw new Error('Email credentials are not provided');
     }
     this.imap = new Imap({
       user,
@@ -53,22 +56,53 @@ class EmailMonitorBot {
 
     this.imap.once('ready', () => {
       console.log('IMAP connection ready');
+      this.reconnectAttempts = 0;
       this.startMonitoring();
     });
 
     this.imap.once('error', (err: Error) => {
       console.error('IMAP error:', err);
+      this.handleImapError();
     });
 
     this.imap.once('end', () => {
       console.log('IMAP connection ended');
+      this.handleImapError();
     });
+  }
+
+  private handleImapError(): void {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const delay =
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1); // экспоненциальная задержка
+
+      console.log(
+        `Attempting to reconnect to IMAP (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`
+      );
+
+      setTimeout(() => {
+        console.log('Reconnecting to IMAP...');
+        this.setupImap();
+        this.imap.connect();
+      }, delay);
+    } else {
+      console.error(
+        `Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`
+      );
+      if (process.env.CHRONOS_CHAT_ID != undefined) {
+        this.bot.telegram.sendMessage(
+          process.env.CHRONOS_CHAT_ID,
+          'Imap error'
+        );
+      }
+    }
   }
 
   private setupBot(): void {
     // Команда статуса
     this.bot.command('status', (ctx: Context) => {
-        // TODO something
+      // TODO something
     });
 
     this.bot.command('chatid', (ctx: Context) => {
@@ -92,6 +126,17 @@ class EmailMonitorBot {
   private async checkNewEmails(): Promise<void> {
     try {
       await this.openInbox();
+      if (this.imap.state === 'disconnected') {
+        console.log('IMAP not connected, skipping email check');
+        console.log(this.imap.state);
+        if (process.env.CHRONOS_CHAT_ID != undefined) {
+          this.bot.telegram.sendMessage(
+            process.env.CHRONOS_CHAT_ID,
+            'Imap error'
+          );
+        }
+        return;
+      }
     } catch (error) {
       console.error('Error checking emails:', error);
     }
@@ -180,15 +225,15 @@ class EmailMonitorBot {
 
   private async sendAlertNotification(mail: any): Promise<void> {
     const message = this.formatAlertMessage(mail);
-    const chat_id = process.env.CHRONOS_CHAT_ID
+    const chat_id = process.env.CHRONOS_CHAT_ID;
     if (chat_id === undefined) {
-        throw new Error('Chat_id is not provided')
+      throw new Error('Chat_id is not provided');
     }
-      try {
-        await this.bot.telegram.sendMessage(chat_id, message);
-      } catch (error) {
-        console.error(`Error sending message:`, error);
-      }
+    try {
+      await this.bot.telegram.sendMessage(chat_id, message);
+    } catch (error) {
+      console.error(`Error sending message:`, error);
+    }
   }
 
   private formatAlertMessage(mail: any): string {
@@ -197,11 +242,7 @@ class EmailMonitorBot {
       mail.date?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU');
     const text = mail.text ? mail.text.substring(0, 1024) : 'Нет текста';
 
-    return (
-      `🚨 ${subject}\n\n` +
-      `🕒 ${date}\n\n` +
-      `📝 ${text}`
-    );
+    return `🚨 ${subject}\n\n` + `🕒 ${date}\n\n` + `📝 ${text}`;
   }
 
   public async start(): Promise<void> {
