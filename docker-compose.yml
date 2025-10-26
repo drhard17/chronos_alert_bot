@@ -3,4 +3,5 @@ services:
     container_name: chronos_alerts_bot
     build:
       context: ./
+    image: chronos_alerts_bot:latest
     env_file: .env
