@@ -51,7 +51,7 @@ class EmailMonitorBot {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       const delay =
-        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1); // экспоненциальная задержка
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
       console.log(
         `Attempting to reconnect to IMAP (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`
