@@ -197,7 +197,8 @@ class EmailMonitorBot {
   private formatAlertMessage(mail: any): string {
     const subject = mail.subject || 'Без темы';
     const date =
-      mail.date?.toLocaleString('ru-RU') || new Date().toLocaleString('ru-RU');
+      mail.date?.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) ||
+      new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
     const text = mail.text ? mail.text.substring(0, 1024) : 'Нет текста';
 
     return `🚨 ${subject}\n\n` + `🕒 ${date}\n\n` + `📝 ${text}`;
