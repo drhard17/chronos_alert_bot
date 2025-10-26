@@ -2,19 +2,7 @@ import { Telegraf, Context } from 'telegraf';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import * as cron from 'node-cron';
-
-interface EmailConfig {
-  user?: string;
-  password?: string;
-  host?: string;
-  port?: number;
-  tls: boolean;
-}
-
-interface BotConfig {
-  telegramToken?: string;
-  email: EmailConfig;
-}
+import { BotConfigProvider, BotConfig } from './BotConfigProvider';
 
 class EmailMonitorBot {
   private bot: Telegraf;
@@ -25,32 +13,20 @@ class EmailMonitorBot {
   private reconnectDelay: number = 1000;
 
   constructor(config: BotConfig) {
-    const token = config.telegramToken;
-    if (token === undefined) {
-      throw new Error('Bot token is not provided');
-    }
     this.config = config;
-    this.bot = new Telegraf(token);
+    this.bot = new Telegraf(config.telegramToken);
     this.setupImap();
     this.setupBot();
   }
 
   private setupImap(): void {
-    const { user, password, host, port } = this.config.email;
-    if (
-      user === undefined ||
-      password === undefined ||
-      host === undefined ||
-      port === undefined
-    ) {
-      throw new Error('Email credentials are not provided');
-    }
+    const { user, password, host, port, tls } = this.config.email;
     this.imap = new Imap({
       user,
       password,
       host,
       port,
-      tls: this.config.email.tls,
+      tls,
       tlsOptions: { rejectUnauthorized: false }
     });
 
@@ -90,9 +66,9 @@ class EmailMonitorBot {
       console.error(
         `Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`
       );
-      if (process.env.CHRONOS_CHAT_ID != undefined) {
+      if (this.config.chatId != undefined) {
         this.bot.telegram.sendMessage(
-          process.env.CHRONOS_CHAT_ID,
+          this.config.chatId,
           'Imap error'
         );
       }
@@ -129,9 +105,9 @@ class EmailMonitorBot {
       if (this.imap.state === 'disconnected') {
         console.log('IMAP not connected, skipping email check');
         console.log(this.imap.state);
-        if (process.env.CHRONOS_CHAT_ID != undefined) {
+        if (this.config.chatId != undefined) {
           this.bot.telegram.sendMessage(
-            process.env.CHRONOS_CHAT_ID,
+            this.config.chatId,
             'Imap error'
           );
         }
@@ -225,10 +201,7 @@ class EmailMonitorBot {
 
   private async sendAlertNotification(mail: any): Promise<void> {
     const message = this.formatAlertMessage(mail);
-    const chat_id = process.env.CHRONOS_CHAT_ID;
-    if (chat_id === undefined) {
-      throw new Error('Chat_id is not provided');
-    }
+    const chat_id = this.config.chatId;
     try {
       await this.bot.telegram.sendMessage(chat_id, message);
     } catch (error) {
@@ -265,18 +238,8 @@ class EmailMonitorBot {
   }
 }
 
-// Конфигурация
-const config: BotConfig = {
-  telegramToken: process.env.BOT_TOKEN,
-  email: {
-    user: process.env.EMAIL_ADDRESS,
-    password: process.env.EMAIL_PASSWORD,
-    host: process.env.IMAP_HOST,
-    port: Number(process.env.IMAP_PORT),
-    tls: true
-  }
-};
-
 // Запуск бота
-const bot = new EmailMonitorBot(config);
+
+const botConfig = BotConfigProvider.getConfig();
+const bot = new EmailMonitorBot(botConfig);
 bot.start().catch(console.error);
