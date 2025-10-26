@@ -66,34 +66,21 @@ class EmailMonitorBot {
       console.error(
         `Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`
       );
-      if (this.config.chatId != undefined) {
-        this.bot.telegram.sendMessage(
-          this.config.chatId,
-          'Imap error'
-        );
-      }
+      this.bot.telegram.sendMessage(this.config.chatId, 'Imap error');
     }
   }
 
   private setupBot(): void {
-    // Команда статуса
     this.bot.command('status', (ctx: Context) => {
       // TODO something
     });
 
-    this.bot.command('chatid', (ctx: Context) => {
-      const chatId = ctx.chat?.id;
-      ctx.reply(`Chat ID: ${chatId}`);
-    });
-
-    // Обработка ошибок
     this.bot.catch((err: any, ctx: Context) => {
       console.error(`Error for ${ctx.updateType}:`, err);
     });
   }
 
   private startMonitoring(): void {
-    // Проверка каждые 2 минуты
     cron.schedule('*/1 * * * *', () => {
       this.checkNewEmails();
     });
@@ -104,7 +91,6 @@ class EmailMonitorBot {
       await this.openInbox();
       if (this.imap.state === 'disconnected') {
         console.log('IMAP not connected, skipping email check');
-        console.log(this.imap.state);
         if (this.config.chatId != undefined) {
           this.bot.telegram.sendMessage(
             this.config.chatId,
@@ -132,9 +118,9 @@ class EmailMonitorBot {
 
   private searchEmails(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Ищем непрочитанные письма за последние 10 минут
+      const UNREAD_TIME_BOUNDARY = 30;
       const since = new Date();
-      since.setMinutes(since.getMinutes() - 30);
+      since.setMinutes(since.getMinutes() - UNREAD_TIME_BOUNDARY);
 
       this.imap.search(
         ['UNSEEN', ['SINCE', since.toISOString().split('T')[0]]],
@@ -151,10 +137,9 @@ class EmailMonitorBot {
 
           console.log(`📨 Found ${results.length} unread emails`);
 
-          // ✅ Ключевое решение: используем markSeen: true
           const fetch = this.imap.fetch(results, {
             bodies: '',
-            markSeen: true // IMAP сервер сам помечает письма как прочитанные
+            markSeen: true
           });
 
           let alertCount = 0;
@@ -219,14 +204,11 @@ class EmailMonitorBot {
   }
 
   public async start(): Promise<void> {
-    // Подключаемся к IMAP
     this.imap.connect();
 
-    // Запускаем бота
     await this.bot.launch();
     console.log('Telegram bot started');
 
-    // Graceful shutdown
     process.once('SIGINT', () => this.stop());
     process.once('SIGTERM', () => this.stop());
   }
@@ -237,8 +219,6 @@ class EmailMonitorBot {
     console.log('Bot stopped');
   }
 }
-
-// Запуск бота
 
 const botConfig = BotConfigProvider.getConfig();
 const bot = new EmailMonitorBot(botConfig);
