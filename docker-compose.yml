@@ -3,3 +3,4 @@ services:
     container_name: chronos_alerts_bot
     build:
       context: ./
+    env_file: .env
